@@ -8,10 +8,10 @@ import UploadZone from './components/UploadZone.jsx';
 import BuilderForm from './components/BuilderForm.jsx';
 import SquadBuilder from './components/SquadBuilder.jsx';
 import ActionBar from './components/ActionBar.jsx';
-import PhotoAdjuster from './components/PhotoAdjuster.jsx';
 import TemplateSelector from './components/TemplateSelector.jsx';
 import StampPicker from './components/StampPicker.jsx';
 import Countdown from './components/Countdown.jsx';
+import InteractiveCanvas from './components/InteractiveCanvas.jsx';
 
 import { renderFrame } from './renderers/frameRenderer.js';
 import { renderBuilderId } from './renderers/builderIdRenderer.js';
@@ -52,7 +52,6 @@ function App() {
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasRendered, setHasRendered] = useState(false);
-  const [canvasVisible, setCanvasVisible] = useState(false);
   const canvasRef = useRef(null);
   const renderScheduled = useRef(false);
 
@@ -92,9 +91,6 @@ function App() {
         renderSquad(canvas, { people: squadPeople, template, stamp });
       }
       setHasRendered(true);
-      // Trigger canvas fade-in
-      setCanvasVisible(false);
-      requestAnimationFrame(() => setCanvasVisible(true));
     } catch (err) {
       console.error('Render error:', err);
       setError('Something went wrong rendering the image. Please try again.');
@@ -118,7 +114,12 @@ function App() {
     setMode(newMode);
     setError('');
     setHasRendered(false);
-    setCanvasVisible(false);
+  }, []);
+
+  // ── Single image adjustment handler ───────────────────────────────────────
+
+  const handleSingleAdjustChange = useCallback((newAdjust) => {
+    setSinglePerson((prev) => (prev ? { ...prev, adjust: newAdjust } : null));
   }, []);
 
   // ── File upload — single (FRAME / BUILDER ID) ─────────────────────────────
@@ -130,7 +131,11 @@ function App() {
     try {
       if (singlePerson?.objectUrl) URL.revokeObjectURL(singlePerson.objectUrl);
       const result = await loadImageFile(file);
-      setSinglePerson({ image: result.image, objectUrl: result.url, adjust: { offsetX: 0, offsetY: 0, scale: 1 } });
+      setSinglePerson({
+        image: result.image,
+        objectUrl: result.url,
+        adjust: { offsetX: 0, offsetY: 0, scale: 1 },
+      });
     } catch (err) {
       setError(err.message || 'Could not read that image. Try JPG, PNG, or HEIC.');
     }
@@ -218,7 +223,6 @@ function App() {
         mode
       );
       await downloadPNG(canvasRef.current, filename);
-      // 🎉 Confetti on successful download
       fireConfetti();
     } catch (err) {
       setError('Download failed. Please try right-clicking the preview and saving instead.');
@@ -294,19 +298,49 @@ function App() {
         <Countdown />
       </section>
 
-      {/* ── Workbench ── */}
+      {/* ── Workbench Layout ── */}
       <main className="workbench" id="workbench" aria-label="Frame generator">
-        {/* ── Left: Controls ── */}
+        {/* ── Preview Panel (Featured prominently on Mobile) ── */}
+        <section className="preview-panel" aria-label="Live preview">
+          <div className="preview-head">
+            <span className="preview-head-label">LIVE PREVIEW</span>
+            <div className="preview-head-right">
+              <span className="preview-template-badge">{template.toUpperCase()}</span>
+              <span className={`preview-status${canGenerate ? ' ready' : ''}`}>
+                {canGenerate ? '● READY' : '○ AWAITING INPUT'}
+              </span>
+            </div>
+          </div>
+
+          {/* Direct Touch & Drag Interactive Canvas */}
+          <InteractiveCanvas
+            canvasRef={canvasRef}
+            hasImage={mode === 'SQUAD' ? squadPeople.some(p => p.image) : Boolean(singlePerson?.image)}
+            adjust={singlePerson?.adjust}
+            onAdjustChange={mode !== 'SQUAD' && singlePerson ? handleSingleAdjustChange : null}
+            template={template}
+            canGenerate={canGenerate}
+          />
+
+          <div className="preview-foot">
+            <span>LESS NOISE.</span>
+            <span>MORE <strong>SIGNAL.</strong></span>
+            <span className="preview-hashtag">#FrameInGoa</span>
+          </div>
+        </section>
+
+        {/* ── Controls Panel (Flows cleanly below Preview on Mobile) ── */}
         <section className="controls-panel" aria-label="Controls">
+          {/* Mode Switcher */}
           <ModeSwitcher mode={mode} onChange={handleModeChange} />
 
-          {/* Template selector */}
+          {/* Template Selector */}
           <TemplateSelector template={template} onChange={setTemplate} />
 
-          {/* Stamp picker */}
+          {/* Stamp Picker */}
           <StampPicker stamp={stamp} onChange={setStamp} />
 
-          {/* Upload zone */}
+          {/* Upload Zone */}
           {mode !== 'SQUAD' ? (
             <UploadZone
               onFiles={handleSingleFiles}
@@ -321,24 +355,15 @@ function App() {
             />
           ) : null}
 
-          {/* Photo adjuster — FRAME and BUILDER ID */}
-          {mode !== 'SQUAD' && singlePerson?.objectUrl && (
-            <PhotoAdjuster
-              objectUrl={singlePerson.objectUrl}
-              adjust={singlePerson.adjust}
-              onChange={(newAdjust) => setSinglePerson((p) => ({ ...p, adjust: newAdjust }))}
-            />
-          )}
-
           {/* FRAME info chip */}
           {mode === 'FRAME' && singlePerson && (
             <div className="info-chip">
               <span className="info-chip-dot" aria-hidden="true" />
-              THE ORIGINAL HH GOA FRAME · PROFILE READY
+              PROFILE FRAME READY · TOUCH CANVAS TO REPOSITION
             </div>
           )}
 
-          {/* Builder ID form */}
+          {/* Builder ID Form */}
           {mode === 'BUILDER ID' && (
             <BuilderForm
               profile={profile}
@@ -347,7 +372,7 @@ function App() {
             />
           )}
 
-          {/* Squad builder */}
+          {/* Squad Builder */}
           {mode === 'SQUAD' && (
             <SquadBuilder
               people={squadPeople}
@@ -358,14 +383,14 @@ function App() {
             />
           )}
 
-          {/* Error */}
+          {/* Error Message */}
           {error && (
             <div className="error-msg" role="alert" aria-live="assertive">
               <span aria-hidden="true">⚠</span> {error}
             </div>
           )}
 
-          {/* Actions */}
+          {/* Action Bar */}
           <ActionBar
             canGenerate={canGenerate}
             isGenerating={isGenerating}
@@ -374,44 +399,6 @@ function App() {
             onDownload={handleDownload}
             onShareX={handleShareX}
           />
-        </section>
-
-        {/* ── Right: Preview ── */}
-        <section className="preview-panel" aria-label="Live preview">
-          <div className="preview-head">
-            <span className="preview-head-label">LIVE OUTPUT</span>
-            <div className="preview-head-right">
-              <span className="preview-template-badge">{template.toUpperCase()}</span>
-              <span className={`preview-status${canGenerate ? ' ready' : ''}`}>
-                {canGenerate ? '● READY' : '○ AWAITING INPUT'}
-              </span>
-            </div>
-          </div>
-
-          <div className="canvas-area">
-            <canvas
-              ref={canvasRef}
-              className={`output-canvas${canvasVisible ? ' canvas-visible' : ''}`}
-              aria-label="Generated HH Goa frame preview"
-            />
-            {!canGenerate && (
-              <div className="empty-state" aria-hidden="true">
-                <div className="empty-hhg">
-                  <span className="empty-hhg-h">H</span>
-                  <span className="empty-hhg-h">H</span>
-                  <span className="empty-hhg-g">G</span>
-                </div>
-                <div className="empty-text">UPLOAD A PHOTO<br />TO START BUILDING</div>
-                <div className="empty-sub">NO LOGIN · NO ACCOUNT · CLIENT-SIDE</div>
-              </div>
-            )}
-          </div>
-
-          <div className="preview-foot">
-            <span>LESS NOISE.</span>
-            <span>MORE <strong>SIGNAL.</strong></span>
-            <span className="preview-hashtag">#FrameInGoa</span>
-          </div>
         </section>
       </main>
 
